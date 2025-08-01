@@ -1,0 +1,16 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head><title>Abuse Detector</title></head>
+<body>
+  <h2>Upload Audio for Abuse Detection</h2>
+  <form method="POST" enctype="multipart/form-data">
+    <input type="file" name="file" required>
+    <input type="submit" value="Upload">
+  </form>
+
+  {% if result %}
+    <h3>Result: {{ result }}</h3>
+  {% endif %}
+</body>
+</html>
