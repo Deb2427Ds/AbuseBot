@@ -1,32 +1,32 @@
-# app.py
-from flask import Flask, render_template, request
-import os
+from flask import Flask, render_template, request, jsonify
+from deepface import DeepFace
+import cv2
+import numpy as np
+import base64
+import io
+from PIL import Image
 
 app = Flask(__name__)
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-@app.route("/", methods=["GET", "POST"])
+@app.route('/')
 def index():
-    result = None
-    if request.method == "POST":
-        file = request.files["file"]
-        if file:
-            filepath = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
-            file.save(filepath)
+    return render_template('index.html')
 
-            # Dummy logic — replace with your model
-            if "abuse" in file.filename.lower():
-                result = "Abusive content detected"
-            else:
-                result = "No abuse detected"
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    data_url = request.json['image']
+    header, encoded = data_url.split(",", 1)
+    image_data = base64.b64decode(encoded)
+    image = Image.open(io.BytesIO(image_data))
+    image = np.array(image.convert('RGB'))
 
-    return render_template("index.html", result=result)
+    try:
+        result = DeepFace.analyze(image, actions=['emotion'], enforce_detection=False)
+        emotion = result[0]['dominant_emotion']
+    except Exception as e:
+        emotion = "Error"
 
-import os
+    return jsonify({'emotion': emotion})
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
-
+if __name__ == '__main__':
+    app.run(debug=True)
