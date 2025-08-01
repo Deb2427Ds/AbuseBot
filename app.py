@@ -33,16 +33,24 @@ from streamlit_webrtc import webrtc_streamer, ClientSettings
 
 ctx = webrtc_streamer(
     key="speech",
-    mode="sendrecv",  # avoid "sendonly" as it can cause bugs
+    mode=WebRtcMode.SENDRECV,  # this fixes the AttributeError
     client_settings=ClientSettings(
         media_stream_constraints={"audio": True, "video": False},
-        rtc_configuration={  # use STUN server for local testing
+        rtc_configuration={
             "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        },
+        }
     ),
     audio_receiver_size=1024,
-    audio_processor_factory=AudioProcessor,  # define this class
+    audio_processor_factory=AudioProcessor  # ensure this class is implemented
 )
+
+class AudioProcessor:
+    def __init__(self) -> None:
+        self.recognizer = sr.Recognizer()
+
+    def recv(self, frame):
+        # You can process the audio frame here
+        return frame
 
 
 # Run analysis on captured audio
