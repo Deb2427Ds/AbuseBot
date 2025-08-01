@@ -28,13 +28,21 @@ class AudioProcessor(AudioProcessorBase):
 st.title("🎙️ Live Voice Abuse & Sentiment Detector")
 
 # Start audio stream from microphone
+from streamlit_webrtc import webrtc_streamer, ClientSettings
+
 ctx = webrtc_streamer(
     key="speech",
-    mode=WebRtcMode.SENDONLY,  # Must be WebRtcMode enum
+    mode="sendrecv",  # avoid "sendonly" as it can cause bugs
+    client_settings=ClientSettings(
+        media_stream_constraints={"audio": True, "video": False},
+        rtc_configuration={  # use STUN server for local testing
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        },
+    ),
     audio_receiver_size=1024,
-    client_settings={"mediaStreamConstraints": {"audio": True, "video": False}},
-    audio_processor_factory=AudioProcessor,
+    audio_processor_factory=AudioProcessor,  # define this class
 )
+
 
 # Run analysis on captured audio
 if st.button("Analyze Live Audio"):
