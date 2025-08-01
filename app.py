@@ -1,10 +1,11 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
 import speech_recognition as sr
 from textblob import TextBlob
 import numpy as np
 import queue
 
+# Keywords to flag abusive content
 abusive_keywords = ["abuse", "hate", "stupid", "idiot", "fool"]
 
 def is_abusive(text):
@@ -14,6 +15,7 @@ def get_sentiment(text):
     blob = TextBlob(text)
     return blob.sentiment.polarity
 
+# Queue to store audio frames
 result_queue = queue.Queue()
 
 class AudioProcessor(AudioProcessorBase):
@@ -22,20 +24,24 @@ class AudioProcessor(AudioProcessorBase):
         result_queue.put(audio_data)
         return frame
 
+# App UI
 st.title("🎙️ Live Voice Abuse & Sentiment Detector")
 
+# Start audio stream from microphone
 ctx = webrtc_streamer(
     key="speech",
-    mode="sendonly",
+    mode=WebRtcMode.SENDONLY,  # Must be WebRtcMode enum
     audio_receiver_size=1024,
     client_settings={"mediaStreamConstraints": {"audio": True, "video": False}},
     audio_processor_factory=AudioProcessor,
 )
 
+# Run analysis on captured audio
 if st.button("Analyze Live Audio"):
     recognizer = sr.Recognizer()
     audio_frames = []
 
+    # Collect all audio from the queue
     while not result_queue.empty():
         audio_frames.append(result_queue.get())
 
@@ -57,4 +63,6 @@ if st.button("Analyze Live Audio"):
             else:
                 st.success("✅ Normal speech.")
         except Exception as e:
-            st.warning("Speech could not be recognized.")
+            st.warning("⚠️ Speech could not be recognized. Try again.")
+    else:
+        st.info("No audio input was received yet. Please speak and then click Analyze.")
