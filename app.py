@@ -1,65 +1,51 @@
-import streamlit as st
-from textblob import TextBlob
-import speech_recognition as sr
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
-import numpy as np
+from transformers import pipeline
+import sounddevice as sd
+import scipy.io.wavfile as wav
 
-# List of abusive keywords
-abusive_keywords = ["abuse", "hate", "stupid", "idiot", "fool"]
+# Record 5 sec audio
+def record_audio(filename="temp.wav"):
+    fs = 16000
+    print("Recording...")
+    audio = sd.rec(int(5 * fs), samplerate=fs, channels=1)
+    sd.wait()
+    wav.write(filename, fs, audio)
+    print("Recording saved")
 
-def is_abusive(text):
-    return [word for word in abusive_keywords if word in text.lower()]
+record_audio()
 
-def get_sentiment(text):
-    blob = TextBlob(text)
-    return blob.sentiment.polarity  # Range: -1 (neg) to 1 (pos)
+# Transcribe with whisper
+from transformers import pipeline
+asr = pipeline("automatic-speech-recognition", model="openai/whisper-base")
+result = asr("temp.wav")
+print("Transcript:", result["text"])
 
-st.title("🎙️ Real-time Audio Abuse & Sentiment Monitor")
+toxic = pipeline("text-classification", model="unitary/toxic-bert")
+output = toxic(result["text"])
+print("Toxicity:", output)
 
-# Voice input section
-st.header("🎧 Voice Input")
-recognizer = sr.Recognizer()
+from deepface import DeepFace
+import cv2
 
-def transcribe_voice():
-    with sr.Microphone() as source:
-        st.info("Listening... please speak clearly.")
-        try:
-            audio = recognizer.listen(source, timeout=5)
-            text = recognizer.recognize_google(audio)
-            st.success(f"Transcribed Text: {text}")
-            return text
-        except sr.WaitTimeoutError:
-            st.error("⏱️ Timeout: No speech detected.")
-        except sr.UnknownValueError:
-            st.error("🤷 Could not understand audio.")
-        except sr.RequestError as e:
-            st.error(f"❌ API Error: {e}")
-    return ""
+cap = cv2.VideoCapture(0)
+ret, frame = cap.read()
+cv2.imwrite("frame.jpg", frame)
+cap.release()
 
-if st.button("🎙️ Start Voice Analysis"):
-    user_input = transcribe_voice()
-    if user_input:
-        abusive = is_abusive(user_input)
-        sentiment = get_sentiment(user_input)
+analysis = DeepFace.analyze("frame.jpg", actions=['emotion'])
+print("Detected Emotion:", analysis[0]['dominant_emotion'])
 
-        if abusive:
-            st.error(f"🚨 Abusive content detected: {', '.join(abusive)}")
-        elif sentiment < -0.5:
-            st.warning("😟 Strong Negative Sentiment Detected")
-        else:
-            st.success("✅ No abuse or strong negativity detected.")
+import gradio as gr
 
-# Optional: Text input
-st.header("📝 Or Enter Text Manually")
-text_input = st.text_area("Paste or type a message here:")
-if st.button("Analyze Text"):
-    if text_input:
-        abusive = is_abusive(text_input)
-        sentiment = get_sentiment(text_input)
+def detect_abuse(audio):
+    transcript = asr(audio)["text"]
+    toxicity = toxic(transcript)[0]
+    return f"Transcript: {transcript}", f"Toxicity: {toxicity['label']} ({toxicity['score']:.2f})"
 
-        if abusive:
-            st.error(f"🚨 Abusive content detected: {', '.join(abusive)}")
-        elif sentiment < -0.5:
-            st.warning("😟 Strong Negative Sentiment Detected")
-        else:
-            st.success("✅ No abuse or strong negativity detected.")
+gr.Interface(
+    fn=detect_abuse,
+    inputs=gr.Audio(source="microphone", type="filepath"),
+    outputs=["text", "text"]
+).launch()
+
+
+
