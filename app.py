@@ -1,51 +1,68 @@
+import streamlit as st
+import speech_recognition as sr
 from transformers import pipeline
-import sounddevice as sd
-import scipy.io.wavfile as wav
+import tempfile
+import os
 
-# Record 5 sec audio
-def record_audio(filename="temp.wav"):
-    fs = 16000
-    print("Recording...")
-    audio = sd.rec(int(5 * fs), samplerate=fs, channels=1)
-    sd.wait()
-    wav.write(filename, fs, audio)
-    print("Recording saved")
+# Load Hugging Face pipeline for sentiment analysis
+sentiment_analyzer = pipeline("sentiment-analysis")
 
-record_audio()
+# Define abusive keywords (you can expand this)
+abusive_keywords = ["abuse", "hate", "stupid", "idiot", "fool"]
 
-# Transcribe with whisper
-from transformers import pipeline
-asr = pipeline("automatic-speech-recognition", model="openai/whisper-base")
-result = asr("temp.wav")
-print("Transcript:", result["text"])
+def is_abusive(text):
+    found = [word for word in abusive_keywords if word in text.lower()]
+    return found
 
-toxic = pipeline("text-classification", model="unitary/toxic-bert")
-output = toxic(result["text"])
-print("Toxicity:", output)
+def transcribe_audio(audio_file):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_file) as source:
+        audio = recognizer.record(source)
+    try:
+        text = recognizer.recognize_google(audio)
+        return text
+    except sr.UnknownValueError:
+        return "Sorry, couldn't understand the audio."
+    except sr.RequestError:
+        return "Could not request results from Google Speech Recognition service."
 
-from deepface import DeepFace
-import cv2
+# Streamlit UI
+st.title("🎙️ Real-time Abuse & Sentiment Detector")
 
-cap = cv2.VideoCapture(0)
-ret, frame = cap.read()
-cv2.imwrite("frame.jpg", frame)
-cap.release()
+# Text Input
+st.subheader("📝 Text Message Check")
+text_input = st.text_area("Enter your message:")
+if st.button("Analyze Text"):
+    sentiment = sentiment_analyzer(text_input)[0]
+    abuse = is_abusive(text_input)
 
-analysis = DeepFace.analyze("frame.jpg", actions=['emotion'])
-print("Detected Emotion:", analysis[0]['dominant_emotion'])
+    st.write(f"**Sentiment:** {sentiment['label']} (score: {sentiment['score']:.2f})")
+    if abuse:
+        st.error(f"⚠️ Abusive language detected: {', '.join(abuse)}")
+    else:
+        st.success("✅ No abusive keywords found.")
 
-import gradio as gr
+# Voice Input
+st.subheader("🎤 Upload Voice Message")
+audio_file = st.file_uploader("Upload .wav audio file", type=["wav"])
+if audio_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+        tmp_file.write(audio_file.read())
+        tmp_path = tmp_file.name
 
-def detect_abuse(audio):
-    transcript = asr(audio)["text"]
-    toxicity = toxic(transcript)[0]
-    return f"Transcript: {transcript}", f"Toxicity: {toxicity['label']} ({toxicity['score']:.2f})"
+    st.audio(audio_file, format="audio/wav")
 
-gr.Interface(
-    fn=detect_abuse,
-    inputs=gr.Audio(source="microphone", type="filepath"),
-    outputs=["text", "text"]
-).launch()
+    if st.button("Analyze Audio"):
+        transcribed = transcribe_audio(tmp_path)
+        st.write(f"**Transcribed Text:** {transcribed}")
+        sentiment = sentiment_analyzer(transcribed)[0]
+        abuse = is_abusive(transcribed)
 
+        st.write(f"**Sentiment:** {sentiment['label']} (score: {sentiment['score']:.2f})")
+        if abuse:
+            st.error(f"⚠️ Abusive language detected: {', '.join(abuse)}")
+        else:
+            st.success("✅ No abusive keywords found.")
 
-
+    # Clean up temp file
+    os.remove(tmp_path)
