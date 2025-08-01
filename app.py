@@ -1,10 +1,10 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import speech_recognition as sr
 from textblob import TextBlob
-from io import BytesIO
-from pydub import AudioSegment
+import numpy as np
+import queue
 
-# Abusive words
 abusive_keywords = ["abuse", "hate", "stupid", "idiot", "fool"]
 
 def is_abusive(text):
@@ -14,48 +14,47 @@ def get_sentiment(text):
     blob = TextBlob(text)
     return blob.sentiment.polarity
 
-def transcribe_audio(audio_file):
+result_queue = queue.Queue()
+
+class AudioProcessor(AudioProcessorBase):
+    def recv(self, frame):
+        audio_data = np.frombuffer(frame.to_ndarray(), dtype=np.int16)
+        result_queue.put(audio_data)
+        return frame
+
+st.title("🎙️ Live Voice Abuse & Sentiment Detector")
+
+ctx = webrtc_streamer(
+    key="speech",
+    mode="sendonly",
+    audio_receiver_size=1024,
+    client_settings={"mediaStreamConstraints": {"audio": True, "video": False}},
+    audio_processor_factory=AudioProcessor,
+)
+
+if st.button("Analyze Live Audio"):
     recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file) as source:
-        audio_data = recognizer.record(source)
+    audio_frames = []
+
+    while not result_queue.empty():
+        audio_frames.append(result_queue.get())
+
+    if audio_frames:
+        audio_bytes = np.concatenate(audio_frames).tobytes()
+        audio = sr.AudioData(audio_bytes, sample_rate=48000, sample_width=2)
+
         try:
-            text = recognizer.recognize_google(audio_data)
-            return text
-        except sr.UnknownValueError:
-            return "Could not understand audio."
-        except sr.RequestError:
-            return "API unavailable."
+            text = recognizer.recognize_google(audio)
+            st.write("🗣️ Transcribed Text:", text)
 
-# UI
-st.title("🎤 Voice/Text Abuse & Sentiment Monitor")
+            abusive = is_abusive(text)
+            sentiment = get_sentiment(text)
 
-input_mode = st.radio("Choose input mode:", ("Text", "Voice"))
-
-if input_mode == "Text":
-    user_input = st.text_area("Enter message:")
-else:
-    uploaded_audio = st.file_uploader("Upload WAV audio file", type=["wav"])
-    user_input = ""
-    if uploaded_audio:
-        # Convert to audio segment and re-save in memory if needed
-        audio_bytes = BytesIO(uploaded_audio.read())
-        user_input = transcribe_audio(audio_bytes)
-        st.write("Transcribed Text:")
-        st.write(user_input)
-
-if st.button("Analyze"):
-    if user_input.strip():
-        abusive = is_abusive(user_input)
-        sentiment = get_sentiment(user_input)
-
-        if abusive:
-            st.error(f"⚠️ Abusive content: {', '.join(abusive)}")
-            st.toast("🚨 Abusive language detected.")
-        elif sentiment < -0.5:
-            st.warning("⚠️ Negative tone detected.")
-            st.toast("🚨 Negative sentiment alert.")
-        else:
-            st.success("✅ Clean message.")
-            st.toast("✅ Message is clean.")
-    else:
-        st.info("Please provide a message or audio input.")
+            if abusive:
+                st.error(f"⚠️ Abusive language detected: {', '.join(abusive)}")
+            elif sentiment < -0.5:
+                st.warning("⚠️ Negative sentiment detected.")
+            else:
+                st.success("✅ Normal speech.")
+        except Exception as e:
+            st.warning("Speech could not be recognized.")
