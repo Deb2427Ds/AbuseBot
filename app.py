@@ -1,65 +1,65 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
-import speech_recognition as sr
 from textblob import TextBlob
-import tempfile
-import queue
-import av
+import speech_recognition as sr
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
+import numpy as np
 
-st.set_page_config(page_title="🎤 Live Audio Sentiment", layout="centered")
+# List of abusive keywords
+abusive_keywords = ["abuse", "hate", "stupid", "idiot", "fool"]
 
-st.title("🎤 Live Audio Sentiment Analyzer")
+def is_abusive(text):
+    return [word for word in abusive_keywords if word in text.lower()]
 
-# Create a queue to hold audio data
-audio_queue = queue.Queue()
+def get_sentiment(text):
+    blob = TextBlob(text)
+    return blob.sentiment.polarity  # Range: -1 (neg) to 1 (pos)
 
-class AudioProcessor(AudioProcessorBase):
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
-        self.audio_buffer = []
+st.title("🎙️ Real-time Audio Abuse & Sentiment Monitor")
 
-    def recv(self, frame: av.AudioFrame):
-        pcm_data = frame.to_ndarray().flatten().tobytes()
-        audio_queue.put(pcm_data)
-        return frame
+# Voice input section
+st.header("🎧 Voice Input")
+recognizer = sr.Recognizer()
 
-webrtc_streamer(
-    key="speech",
-    audio_processor_factory=AudioProcessor,
-    media_stream_constraints={"video": False, "audio": True},
-    async_processing=True,
-)
-
-# Combine and save audio from queue
-if st.button("Analyze Speech"):
-    st.info("Processing...")
-
-    audio_data = b""
-    while not audio_queue.empty():
-        audio_data += audio_queue.get()
-
-    # Save to a temporary WAV file
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(audio_data)
-        temp_audio_path = f.name
-
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(temp_audio_path) as source:
+def transcribe_voice():
+    with sr.Microphone() as source:
+        st.info("Listening... please speak clearly.")
         try:
-            audio = recognizer.record(source)
+            audio = recognizer.listen(source, timeout=5)
             text = recognizer.recognize_google(audio)
-            st.subheader("📝 Transcription")
-            st.write(text)
-
-            sentiment = TextBlob(text).sentiment
-            st.subheader("🔍 Sentiment")
-            st.write(f"Polarity: {sentiment.polarity:.2f}")
-            st.write("Sentiment:",
-                     "😊 Positive" if sentiment.polarity > 0.1 else
-                     "😐 Neutral" if -0.1 <= sentiment.polarity <= 0.1 else
-                     "😠 Negative")
-
+            st.success(f"Transcribed Text: {text}")
+            return text
+        except sr.WaitTimeoutError:
+            st.error("⏱️ Timeout: No speech detected.")
         except sr.UnknownValueError:
-            st.warning("Could not understand the audio.")
-        except sr.RequestError:
-            st.error("Speech recognition service is unavailable.")
+            st.error("🤷 Could not understand audio.")
+        except sr.RequestError as e:
+            st.error(f"❌ API Error: {e}")
+    return ""
+
+if st.button("🎙️ Start Voice Analysis"):
+    user_input = transcribe_voice()
+    if user_input:
+        abusive = is_abusive(user_input)
+        sentiment = get_sentiment(user_input)
+
+        if abusive:
+            st.error(f"🚨 Abusive content detected: {', '.join(abusive)}")
+        elif sentiment < -0.5:
+            st.warning("😟 Strong Negative Sentiment Detected")
+        else:
+            st.success("✅ No abuse or strong negativity detected.")
+
+# Optional: Text input
+st.header("📝 Or Enter Text Manually")
+text_input = st.text_area("Paste or type a message here:")
+if st.button("Analyze Text"):
+    if text_input:
+        abusive = is_abusive(text_input)
+        sentiment = get_sentiment(text_input)
+
+        if abusive:
+            st.error(f"🚨 Abusive content detected: {', '.join(abusive)}")
+        elif sentiment < -0.5:
+            st.warning("😟 Strong Negative Sentiment Detected")
+        else:
+            st.success("✅ No abuse or strong negativity detected.")
